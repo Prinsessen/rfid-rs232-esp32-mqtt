@@ -92,7 +92,7 @@ follow:
 |---|---|---|
 | ESP32 | 30-pin ESP32-WROOM DevKit (`esp32dev`) | RX2 = GPIO16; GPIO25 / GPIO26 drive the transistors (no boot strapping pins) |
 | RS-232 | MAX3232 breakout with a female DB-9 and a 4-pin header (VCC, GND, TXD, RXD) | **VCC from the ESP's 3V3, never 5 V** - its TTL output follows VCC, and 5 V into an ESP input is out of spec. A plain MAX232 (no "3") needs 5 V: not that one |
-| power | the reader's 12 V supply (>= 0.5 A) + a 12 -> 5 V buck (MP1584 / LM2596 / Mini-360) to the ESP's VIN | **set the buck to 5.0 V with a meter before the ESP is on it** |
+| power | the reader's 12 V supply (>= 0.5 A) + a 12 -> 5 V buck to the ESP's VIN: a fixed 5 V module (running here: a 15 W DC-DC, 7-20 V in, 5 V / 3 A out) or an adjustable one (MP1584 / LM2596 / Mini-360) | an adjustable one: **set it to 5.0 V with a meter before the ESP is on it** |
 | cable | a DB-9 into the MAX3232 board; the reader's TX on its pin 3, GND on pin 5 | a male DB-9 with screw terminals, or a cable with one end cut off - bip it first (below) |
 | buzzer driver | 1 x NPN (BC547 / 2N3904 / 2N2222), 1 kΩ (GPIO -> base), 10 kΩ (base -> emitter) | emitter to GND, collector to the reader's buzzer contact. The 10 kΩ keeps it off while the ESP boots |
 | LED driver *(optional)* | the same again on GPIO25 -> the reader's LED contact | |
