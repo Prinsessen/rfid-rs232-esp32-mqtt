@@ -1,0 +1,8 @@
+# never commit these: the secrets, and the build (its images carry the WiFi and MQTT passwords)
+secrets.yaml
+.esphome/
+*.bin
+*.elf
+*.bak*
+.vscode/
+__pycache__/

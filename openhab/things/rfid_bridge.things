@@ -1,0 +1,23 @@
+// The bridge as an openHAB MQTT thing. Needs an MQTT broker bridge thing (here mqtt:broker:broker) that
+// connects to the same broker as the ESP32. Topic base "rfid/door" = topic_base in rfid-serial-bridge.yaml.
+//
+// "tag" is a TRIGGER channel on purpose: a channel event has no state, so nothing - a restart that restores
+// item states, an items reload - can ever replay an old reading into your alarm. Never bind the readings to
+// an item with an update trigger.
+Thing mqtt:topic:rfid "RFID bridge" (mqtt:broker:broker) {
+    Channels:
+        Type string : tag     "Tag read"                         [ stateTopic="rfid/door/tag", trigger=true ]
+        Type switch : bridge  "Bridge online"                    [ stateTopic="rfid/door/bridge/status", on="online", off="offline" ]
+        Type number : rssi    "WiFi RSSI"                        [ stateTopic="rfid/door/bridge/rssi" ]
+        Type number : uptime  "Uptime"                           [ stateTopic="rfid/door/bridge/uptime", unit="s" ]
+        Type number : ok      "Readings published"               [ stateTopic="rfid/door/bridge/reads_ok" ]
+        Type number : bad     "Bad frames"                       [ stateTopic="rfid/door/bridge/reads_bad" ]
+        Type number : lost    "Readings lost (no MQTT)"          [ stateTopic="rfid/door/bridge/reads_lost" ]
+        Type string : version "ESPHome version"                  [ stateTopic="rfid/door/bridge/version" ]
+        Type string : ip      "IP address"                       [ stateTopic="rfid/door/bridge/ip" ]
+        Type string : mac     "MAC address"                      [ stateTopic="rfid/door/bridge/mac" ]
+        Type string : ssid    "WiFi network"                     [ stateTopic="rfid/door/bridge/ssid" ]
+        Type string : bssid   "WiFi access point"                [ stateTopic="rfid/door/bridge/bssid" ]
+        // the answer the rule sent, read back (no commandTopic: this item can never send one itself)
+        Type string : answer  "Last answer (arm/disarm/denied)"  [ stateTopic="rfid/door/feedback" ]
+}

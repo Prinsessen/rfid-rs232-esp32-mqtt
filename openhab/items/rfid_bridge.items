@@ -1,0 +1,22 @@
+// The bridge's state. The readings themselves are NOT here - they arrive on the trigger channel mqtt:topic:rfid:tag.
+Group    gRfidBridge         "RFID bridge"
+Switch   RfidBridge_Online   "RFID bridge [%s]"                         (gRfidBridge) ["Status"]      { channel="mqtt:topic:rfid:bridge" }
+Number   RfidBridge_Rssi     "RFID bridge WiFi [%.0f dBm]"              (gRfidBridge) ["Measurement"] { channel="mqtt:topic:rfid:rssi" }
+Number:Time RfidBridge_Uptime "RFID bridge uptime [%.1f h]"             (gRfidBridge) ["Measurement"] { channel="mqtt:topic:rfid:uptime", unit="h" }
+Number   RfidBridge_Ok       "RFID readings published [%.0f]"           (gRfidBridge) ["Measurement"] { channel="mqtt:topic:rfid:ok" }
+Number   RfidBridge_Bad      "RFID bad frames [%.0f]"                   (gRfidBridge) ["Measurement"] { channel="mqtt:topic:rfid:bad" }
+Number   RfidBridge_Lost     "RFID readings lost (no MQTT) [%.0f]"      (gRfidBridge) ["Measurement"] { channel="mqtt:topic:rfid:lost" }
+String   RfidBridge_Version  "RFID bridge firmware [%s]"                (gRfidBridge) ["Status"]      { channel="mqtt:topic:rfid:version" }
+String   RfidBridge_Ip       "RFID bridge IP [%s]"                      (gRfidBridge) ["Status"]      { channel="mqtt:topic:rfid:ip" }
+String   RfidBridge_Mac      "RFID bridge MAC [%s]"                     (gRfidBridge) ["Status"]      { channel="mqtt:topic:rfid:mac" }
+String   RfidBridge_Ssid     "RFID bridge WiFi network [%s]"            (gRfidBridge) ["Status"]      { channel="mqtt:topic:rfid:ssid" }
+String   RfidBridge_Bssid    "RFID bridge access point [%s]"            (gRfidBridge) ["Status"]      { channel="mqtt:topic:rfid:bssid" }
+String   RfidBridge_Answer   "RFID last answer [%s]"                    (gRfidBridge) ["Status"]      { channel="mqtt:topic:rfid:answer" }
+
+// what the example rule writes (records only - nothing triggers on them)
+DateTime Rfid_Last_Scan      "Last RFID scan [%1$td.%1$tm.%1$tY %1$tT]" (gRfidBridge) ["Timestamp"]
+String   Rfid_Last_Tag       "Last RFID tag [%s]"                       (gRfidBridge) ["Status"]
+
+// your alarm: the example rule commands Alarm_Arm ON / OFF and reads Alarm_Armed to decide which
+Switch   Alarm_Arm           "Arm the alarm"
+Switch   Alarm_Armed         "Alarm armed [%s]"

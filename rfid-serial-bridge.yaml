@@ -1,0 +1,220 @@
+# =============================================================================
+# rfid-rs232-esp32-mqtt - an EM4100 RFID reader's RS-232 output -> ESP32 -> MQTT (TLS)
+# =============================================================================
+# Built for a Pegasus PP-30/nR2 (125 kHz EM, RS-232 ASCII, 9600 8N1); any reader that sends
+# 12 hex digits (10-digit EM4100 ID + 2-digit XOR checksum) as ASCII works the same.
+#
+#   reader TX (RS-232)  -> MAX3232 DB-9 pin 3 (R1IN) -> R1OUT -> ESP GPIO16 (RX2)
+#   reader GND          -> MAX3232 DB-9 pin 5 / ESP GND / 12 V supply -
+#   reader +9..12 V     <- the 12 V supply, which also feeds a 12->5 V buck -> ESP VIN
+#   reader LED contact  <- NPN (collector) <- 1 k <- GPIO25   (optional)
+#   reader buzzer       <- NPN (collector) <- 1 k <- GPIO26
+#
+# The bridge reads, checks (12 hex digits, EM4100 XOR checksum), debounces and publishes;
+# your home automation decides and answers on <topic_base>/feedback (arm / disarm / denied),
+# which this board turns into the reader's buzzer and LED. It never decides anything itself.
+# Wiring, measurements before connecting, MQTT topics, openHAB example: README.md.
+#
+# First time over USB, then OTA:
+#   esphome run rfid-serial-bridge.yaml
+#   esphome upload rfid-serial-bridge.yaml --device rfid-serial-bridge.local
+# =============================================================================
+
+substitutions:
+  device_name: "rfid-serial-bridge"
+  friendly_name: "RFID serial bridge (Pegasus PP-30)"
+  topic_base: "rfid/door"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  comment: "Pegasus PP-30/nR2 RS-232 -> MQTT, LED/buzzer from openHAB"
+  includes:
+    - rfid_frame.h
+
+esp32:
+  board: esp32dev            # 30-pin ESP32-WROOM DevKit
+  framework:
+    type: arduino
+
+logger:
+  baud_rate: 0               # UART0 silent; the reader is on UART2
+  level: INFO
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    password: !secret fallback_password
+
+captive_portal:
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+time:
+  - platform: sntp
+    id: sntp_time
+
+mqtt:
+  id: mqtt_client
+  broker: !secret mqtt_broker
+  port: 8883
+  username: !secret mqtt_username
+  password: !secret mqtt_password
+  certificate_authority: !secret mqtt_ca
+  topic_prefix: ${topic_base}/bridge     # birth/will on <topic_base>/bridge/status
+  discovery: false
+  on_message:
+    # openHAB's answer to a reading. Acted on only within 10 s of a reading at THIS reader,
+    # so a stray or replayed message never beeps at an empty door.
+    - topic: ${topic_base}/feedback
+      qos: 1
+      then:
+        - lambda: |-
+            if (millis() - id(last_read_ms) > 10000 || id(last_read_ms) == 0) {
+              ESP_LOGW("rfid", "feedback '%s' with no reading in the last 10 s - ignored", x.c_str());
+              return;
+            }
+            if (x == "arm")         id(feedback)->execute(true, 2, 100);   // green, two short beeps
+            else if (x == "disarm") id(feedback)->execute(true, 1, 100);   // green, one short beep
+            else if (x == "denied") id(feedback)->execute(false, 3, 300);  // no green, three long beeps
+            else ESP_LOGW("rfid", "unknown feedback '%s'", x.c_str());
+
+uart:
+  id: rfid_uart
+  rx_pin: GPIO16             # <- MAX3232 R1OUT <- DB-9 pin 3 <- reader pin 4
+  baud_rate: 9600            # the reader's output: 9600 8N1, RS-232
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+  rx_buffer_size: 256
+
+globals:
+  - id: last_read_ms
+    type: uint32_t
+    initial_value: '0'
+  - id: reads_ok
+    type: uint32_t
+    initial_value: '0'
+  - id: reads_bad
+    type: uint32_t
+    initial_value: '0'
+  - id: reads_lost
+    type: uint32_t
+    initial_value: '0'
+
+output:
+  - platform: gpio
+    pin: GPIO25              # -> 1 k -> NPN base (10 k base-emitter); collector -> reader pin 6 (LED)
+    id: led_out
+  - platform: gpio
+    pin: GPIO26              # -> 1 k -> NPN base (10 k base-emitter); collector -> reader pin 7 (buzzer)
+    id: buzzer_out
+
+script:
+  - id: feedback
+    mode: restart            # a new answer replaces the old one; it starts by turning the buzzer off
+    parameters:
+      led: bool
+      beeps: int
+      beep_ms: int
+    then:
+      - output.turn_off: buzzer_out
+      - lambda: 'if (led) id(led_out).turn_on(); else id(led_out).turn_off();'
+      - repeat:
+          count: !lambda 'return beeps;'
+          then:
+            - output.turn_on: buzzer_out
+            - delay: !lambda 'return beep_ms;'
+            - output.turn_off: buzzer_out
+            - delay: 150ms
+      - delay: 2s
+      - output.turn_off: led_out
+
+interval:
+  # the reader: every byte through the frame check, every good frame through the debounce
+  - interval: 20ms
+    then:
+      - lambda: |-
+          static rfid::Frame frame;
+          static rfid::Debounce debounce;
+          const uint32_t now = millis();
+          auto take = [&](rfid::Frame::Result r) {
+            if (r == rfid::Frame::BAD) { id(reads_bad)++; ESP_LOGW("rfid", "bad frame (length or checksum) - dropped"); return; }
+            if (r != rfid::Frame::OK) return;
+            const char *uid = frame.uid();
+            if (!debounce.accept(uid, now)) return;
+            id(last_read_ms) = now;
+            // not retained: a retained reading would arm or disarm again at every reconnect
+            if (id(mqtt_client).publish("${topic_base}/tag", std::string(uid), 1, false)) {
+              id(reads_ok)++;
+              ESP_LOGI("rfid", "tag ...%s published", uid + 8);   // never the whole UID in a log
+            } else {
+              id(reads_lost)++;  // no broker: dropped, never sent late - a late reading would toggle the alarm later
+              ESP_LOGW("rfid", "tag ...%s NOT published (MQTT down)", uid + 8);
+              id(feedback)->execute(false, 3, 300);
+            }
+          };
+          uint8_t c;
+          while (id(rfid_uart).available() && id(rfid_uart).read_byte(&c)) take(frame.feed(c, now));
+          take(frame.idle(now));
+  # belt and braces: nothing stays on outside an answer
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (!id(feedback)->is_running()) { id(led_out).turn_off(); id(buzzer_out).turn_off(); }
+
+binary_sensor:
+  - platform: status
+    name: "Bridge online"
+    state_topic: ${topic_base}/bridge/online
+
+sensor:
+  - platform: wifi_signal
+    name: "WiFi RSSI"
+    update_interval: 60s
+    state_topic: ${topic_base}/bridge/rssi
+  - platform: uptime
+    name: "Uptime"
+    update_interval: 60s
+    state_topic: ${topic_base}/bridge/uptime
+  - platform: template
+    name: "Readings published"
+    lambda: 'return id(reads_ok);'
+    update_interval: 60s
+    accuracy_decimals: 0
+    state_topic: ${topic_base}/bridge/reads_ok
+  - platform: template
+    name: "Bad frames"
+    lambda: 'return id(reads_bad);'
+    update_interval: 60s
+    accuracy_decimals: 0
+    state_topic: ${topic_base}/bridge/reads_bad
+  - platform: template
+    name: "Readings lost (no MQTT)"
+    lambda: 'return id(reads_lost);'
+    update_interval: 60s
+    accuracy_decimals: 0
+    state_topic: ${topic_base}/bridge/reads_lost
+
+text_sensor:
+  - platform: version
+    name: "ESPHome version"
+    state_topic: ${topic_base}/bridge/version
+  # where it is on the network (IP, MAC, SSID, access point) - for a status page;
+  # published at connect and when it changes, retained like every state
+  - platform: wifi_info
+    ip_address:
+      name: "IP address"
+      state_topic: ${topic_base}/bridge/ip
+    mac_address:
+      name: "MAC address"
+      state_topic: ${topic_base}/bridge/mac
+    ssid:
+      name: "WiFi network"
+      state_topic: ${topic_base}/bridge/ssid
+    bssid:
+      name: "WiFi access point"
+      state_topic: ${topic_base}/bridge/bssid
