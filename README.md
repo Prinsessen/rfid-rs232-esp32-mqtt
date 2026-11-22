@@ -73,7 +73,16 @@ every byte as UDP. That works until it does not:
 
 The last line is the reason to fit the buzzer at all: without it, a reading that never reached your automation looks
 exactly like one that did, and you walk away from a house that was not armed. The buzzer alone tells all four apart;
-the LED is optional. The reader may also beep on its own at every read - that is the reader, not this board.
+the LED is optional.
+
+**The PP-30 beeps and blinks by itself at every read** - before any answer, whatever the tag. So the answer comes
+*on top of* the reader's own beep: what you hear for `disarm` is the reader's beep and then one more. Two things
+follow:
+
+- choose patterns that stay apart with that extra beep in front - one short after the reader's beep is easily heard
+  as the two of `arm`; a long beep for one of them is safer (`script: feedback` takes the count and the length);
+- **the reader's own beep and nothing after it = the reading did not reach your automation** (or it did not answer
+  within 10 s). Its own beep never means "accepted".
 
 ---
 
@@ -120,7 +129,8 @@ pin 2. The reader's TX must end on the board's **pin 3**.
 With the reader on its 12 V and nothing else connected:
 
 1. **Pin 4 (TX) to pin 2 (GND) at rest.** Negative (-3..-12 V) = RS-232, as expected. About 0 V is fine too (RS-232
-   polarity at 0/5 V - the MAX3232 switches at about 1.5 V). **About +5 V = TTL with normal polarity**: the MAX3232
+   polarity at 0/5 V - the MAX3232 switches at about 1.5 V); the PP-30 here measures **0.1-0.2 V** at rest and is read
+   without any inversion. **About +5 V = TTL with normal polarity**: the MAX3232
    inverts it, so add `inverted: true` to the UART's `rx_pin` and keep the MAX3232 (it takes 0-5 V on its input, and
    the ESP never sees 5 V). Measure with the green wire on the meter only - the MAX3232's input would pull it down.
 2. **Pin 6 and pin 7 to pin 2.** +3..+12 V = pulled up inside, a pull to GND switches them - what the NPNs do.
